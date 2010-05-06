@@ -5,16 +5,20 @@
  *
  */
 
-var wim_master;
+var webvim_controller;
 
 
-function wim_object(start_text) {
+function webvim_object(start_text) {
     this.text = start_text;
     this.display_text = start_text;
     this.command_mode = true;
     this.position = 0;
+    this.text_extension = "";
+
+
+
     this.initialize = initialize;
-    this.key_action = key_action;
+    this.keyAction = keyAction;
     this.insertAtPosition = insertAtPosition;
     this.updateDisplay = updateDisplay;
     this.incrementPosition = incrementPosition;
@@ -22,6 +26,8 @@ function wim_object(start_text) {
     this.highlightCurrentPosition = highlightCurrentPosition;
     this.handleCommandMode = handleCommandMode;
     this.handleInsertMode = handleInsertMode;
+    this.cleanupCursorPosition = cleanupCursorPosition;
+    this.deleteCharAtCurrentPosition = deleteCharAtCurrentPosition;
 
     function initialize() {
         this.highlightCurrentPosition();
@@ -30,56 +36,75 @@ function wim_object(start_text) {
 
     function insertAtPosition(text) {
         var front = this.text.substring(0, this.position);
-        var end = this.text.substring(this.position, this.text.length);
+        var end = this.text.substring(this.position);
         var result_text = front + text + end;
         return result_text;
     }
 
     function highlightCurrentPosition() {
-        var front = this.text.substring(0, this.position);
-        var target_char = this.text.charAt(this.position);
-        var end = this.text.substring(this.position + 1, this.text.length);
-        var div_start = '<span id="cursor">'; 
-        var div_end = '</span>';
-        this.display_text = front + div_start + target_char + div_end + end;
-    }
-
-    function updateDisplay() {
-        $("#wim_text").html(this.display_text);
-    }
-
-    function handleCommandMode(event) {
-        if (String.fromCharCode(event.which) == "i") {
-            this.command_mode = false;
-        } else if (String.fromCharCode(event.which) == "l") {
-            this.incrementPosition();
-            this.highlightCurrentPosition();
-            this.updateDisplay();
-        } else if (String.fromCharCode(event.which) == "h") {
-            this.decrementPosition();
-            this.highlightCurrentPosition();
-            this.updateDisplay();
-        } else if (String.fromCharCode(event.which) == "a") {
-            if (this.position == this.text.length - 1) {
-                this.extendTextLine()
-            }
-            this.incrementPosition();
-            this.highlightCurrentPosition();
-            this.updateDisplay();
-            this.command_mode = false;
+        var span_start = '<span id="cursor">'; 
+        var span_end = '</span>';
+        if (this.position < this.text.length) {
+            var front = this.text.substring(0, this.position);
+            var target_char = this.text.charAt(this.position);
+            var end = this.text.substring(this.position + 1);
+            this.display_text = front + span_start + target_char + span_end + end;
+        } else if (this.position == this.text.length) {
+            this.display_text = this.text + span_start + "&nbsp;" + span_end;
         }
     }
 
-    function extendTextLine() {
-
-        
-
+    function deleteCharAtCurrentPosition() {
+        var front = this.text.substring(0, this.position);
+        var end = this.text.substring(this.position + 1);
+        this.text = front + end;
+        if (this.position >= this.text.length) {
+            this.position = this.text.length - 1;
+        }
     }
 
-    function cleanupFromInster() {
-
+    function updateDisplay() {
+        /* need to fix spaces and space highlighting */
+        //var result_text = this.display_text.split(" ").join("&nbsp:");
+        $("#webvim_text").html(this.display_text);
     }
-    
+
+    function handleCommandMode(event) {
+        var typed_key = String.fromCharCode(event.which);
+
+        switch (typed_key) {
+            case "i":
+            this.command_mode = false;
+            break;
+            
+            case "l":
+            if (this.position == this.text.length - 1) {
+                break;
+            }
+            this.incrementPosition();
+            break;
+            
+            case "h":
+            this.decrementPosition();
+            break;
+            
+            case "a":
+            this.incrementPosition();
+            this.command_mode = false;
+            break;
+
+            case "$":
+            this.position = this.text.length - 1;
+            break;
+
+            case "x":
+            this.deleteCharAtCurrentPosition();
+            break;
+        }
+        this.highlightCurrentPosition();
+        this.updateDisplay();
+    }
+
     function handleInsertMode(event) {
         this.text = this.insertAtPosition(String.fromCharCode(event.which));
         this.incrementPosition();
@@ -87,10 +112,18 @@ function wim_object(start_text) {
         this.updateDisplay();
     }
 
-    function key_action(event) {
+    function cleanupCursorPosition() {
+        if (this.position >= this.text.length)  {
+            this.position = this.text.length - 1;
+            this.highlightCurrentPosition();
+            this.updateDisplay();
+        }
+    }
+
+    function keyAction(event) {
         if (event.which == 27) {
             this.command_mode = true;
-            this.cleanupFromInsert();
+            this.cleanupCursorPosition();
             return;
         }
 
@@ -103,8 +136,8 @@ function wim_object(start_text) {
 
     function incrementPosition() {
         this.position += 1;
-        if (this.position > (this.text.length - 1)) {
-            this.position = this.text.length -1;
+        if (this.position > (this.text.length)) {
+            this.position = this.text.length;
         }
     }
     
@@ -117,13 +150,13 @@ function wim_object(start_text) {
 }
 
 $(document).ready(function(event) {
-    wim_master = new wim_object("test");
-    wim_master.initialize();
+    webvim_controller = new webvim_object("text is here");
+    webvim_controller.initialize();
 
-    $("#wim_title").text("WIM");
+    $("#webvim_title").text("webvim: A JavaScript Vim Emulator");
 
     $(window).keypress(function(event) {
-        wim_master.key_action(event);
+        webvim_controller.keyAction(event);
     });
 
 });
