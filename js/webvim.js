@@ -76,8 +76,17 @@ function WebvimModel() {
         this.text[0] = start_text;
     }
 
+    this.fixEmptyLines = function() {
+        for (var i = 0; i < this.text.length; i++) {
+            if (this.text[i].length == 0) {
+                this.text[i] = " ";
+            }
+        }
+    }
+
     this.addLine = function(text) {
         this.text[this.text.length] = text;
+        this.fixEmptyLines();
     }
 
     this.getText = function() {
@@ -98,17 +107,13 @@ function WebvimModel() {
         this.text[this.cursor_position.y] = result_text;
         this.synchronizeMarkWithCursor();
     }
-    
-    this.incrementPosition = function() {
+
+    this.cursorRight = function() {
         this.cursor_position.x += 1;
-        var line_len = this.text[this.cursor_position.y].length;
-        if (this.cursor_position.x >= line_len) {
-            this.cursor_position.x = line_len - 1;
-        }
-        this.synchronizeMarkWithCursor();
+        this.makeCursorLegal();
     }
-    
-    this.incrementPositionExtended = function() {
+
+    this.cursorRightExtended = function() {
         this.cursor_position.x += 1;
         var line_len = this.text[this.cursor_position.y].length;
         if (this.cursor_position.x > line_len) {
@@ -118,20 +123,26 @@ function WebvimModel() {
     }
 
     this.putCursorInBounds = function() {
-        var line_len = this.text[this.cursor_position.y].length;
-        if (this.cursor_position.x >= line_len) {
-            this.cursor_position.x = line_len - 1;
+        if (this.cursor_position.y < 0) {
+            this.cursor_position.y = 0;
         }
-        this.synchronizeMarkWithCursor();
-    }
+        if (this.cursor_position.y >= this.text.length) {
+            this.cursor_position.y = this.text.length - 1;
+        }
 
-
-    this.decrementPosition = function() {
-        this.cursor_position.x -= 1;
+        var line_len = this.text[this.cursor_position.y].length;
         if (this.cursor_position.x < 0) {
             this.cursor_position.x = 0;
         }
-        this.synchronizeMarkWithCursor();
+        if (this.cursor_position.x >= line_len) {
+            this.cursor_position.x = line_len - 1;
+        }
+    }
+
+
+    this.cursorLeft = function() {
+        this.cursor_position.x -= 1;
+        this.makeCursorLegal();
     }
 
     this.deleteCharAtCurrentPosition = function() {
@@ -141,12 +152,9 @@ function WebvimModel() {
         var end = current_text.substring(x_pos + 1);
         var result_text = front + end;
         this.text[this.cursor_position.y] = result_text;
-        if (this.cursor_position.x >= result_text.length) {
-            this.cursor_position.x = result_text.length - 1;
-        }
-        this.synchronizeMarkWithCursor();
+        this.makeCursorLegal();
     }
-    
+
     this.jumpToNextWord = function() {
         var current_text = this.text[this.cursor_position.y];
         var next_pos = current_text.indexOf(" ", this.cursor_position.x);
@@ -186,22 +194,19 @@ function WebvimModel() {
         this.synchronizeMarkWithCursor();
     }
 
-    this.cursorUp = function() {
-        if (this.cursor_position.y == 0) {
-            return;
-        }
-        this.cursor_position.y -= 1;
+    this.makeCursorLegal = function() {
         this.putCursorInBounds();
         this.synchronizeMarkWithCursor();
     }
-    
+
+    this.cursorUp = function() {
+        this.cursor_position.y -= 1;
+        this.makeCursorLegal();
+    }
+
     this.cursorDown = function() {
-        if (this.cursor_position.y == this.text.length - 1) {
-            return;
-        }
         this.cursor_position.y += 1;
-        this.putCursorInBounds();
-        this.synchronizeMarkWithCursor();
+        this.makeCursorLegal();
     }
 
     this.endOfLine = function() {
@@ -215,6 +220,15 @@ function WebvimModel() {
         this.synchronizeMarkWithCursor();
     }
 
+    this.deleteCurrentLine = function() {
+        if (this.text.length <= 1) {
+            this.text[0] = " ";
+        } else {
+            this.text.splice(this.cursor_position.y, 1);
+        }
+        this.makeCursorLegal();
+    }
+
     this.breakline = function() {
         var current_y = this.cursor_position.y;
         var current_text = this.text[current_y];
@@ -226,6 +240,7 @@ function WebvimModel() {
 
         this.cursor_position.x = 0;
         this.cursor_position.y = current_y + 1;
+        this.fixEmptyLines();
         this.synchronizeMarkWithCursor();
     }
 
@@ -242,21 +257,25 @@ function WebvimModel() {
             this.text.splice(current_y, 1);
 
         } else {
-            this.decrementPosition();
+            this.cursorLeft();
             this.deleteCharAtCurrentPosition();
         }
         this.synchronizeMarkWithCursor();
     }
 
+
+
 }
 
 function WebvimController() {
     this.command_mode = true;
-    
+    this.command_string = "";
+
     this.keyAction = function(event) {
-        if (event.which == 27) {
+        if (this.keyIsEsc(event.which)) {
             this.command_mode = true;
-            vim_model.putCursorInBounds();
+            vim_model.makeCursorLegal();
+            this.clearCommandString();
             vim_view.refreshDisplay();
             return;
         }
@@ -267,95 +286,121 @@ function WebvimController() {
             this.handleInsertMode(event);
         }
     }
-    
+
+    this.keyIsEsc = function(keycode) {
+        if (keycode == 27 || keycode == 0) {
+            return true;
+        }
+        return false;
+    }
+
     this.handleInsertMode = function(event) {
         switch (event.which)
         {
             case 13:
-            vim_model.breakline();
-            break;
+                vim_model.breakline();
+                break;
 
             case 8:
-            event.preventDefault();
-            vim_model.backspace();
-            break;
+                event.preventDefault();
+                vim_model.backspace();
+                break;
 
             default:
-            var typed_char = String.fromCharCode(event.which);
-            vim_model.insertAtCurrentPosition(typed_char);
-            vim_model.incrementPositionExtended();
-            break;
+                var typed_char = String.fromCharCode(event.which);
+                vim_model.insertAtCurrentPosition(typed_char);
+                vim_model.cursorRightExtended();
+                break;
         }
         vim_view.refreshDisplay();
+    }
+
+    this.command_i = function() {
+        this.command_mode = false;
+    }
+
+    this.command_l = function() {
+        vim_model.cursorRight();
+    }
+
+    this.command_h = function() {
+        vim_model.cursorLeft();
+    }
+
+    this.command_j = function() {
+        vim_model.cursorDown();
+    }
+
+    this.command_k = function() {
+        vim_model.cursorUp();
+    }
+
+    this.command_a = function() {
+        vim_model.cursorRightExtended();
+        this.command_mode = false;
+    }
+
+    this.command_$ = function() {
+        vim_model.endOfLine();
+    }
+
+    this.command_x = function() {
+        vim_model.deleteCharAtCurrentPosition();
+    }
+
+    this.command_w = function() {
+        vim_model.jumpToNextWord();
+    }
+
+    this.command_b = function() {
+        vim_model.jumpBackWord();
+    }
+
+    this.command_0 = function() {
+        vim_model.startOfLine();
+    }
+
+    this.command_dd = function() {
+        vim_model.deleteCurrentLine();
     }
 
     this.handleCommandMode = function(event) {
         var typed_key = String.fromCharCode(event.which);
-
-        switch (typed_key) {
-            case "i":
-            this.command_mode = false;
-            break;
-            
-            case "l":
-            vim_model.incrementPosition();
-            break;
-            
-            case "h":
-            vim_model.decrementPosition();
-            break;
-
-            case "j":
-            vim_model.cursorDown();
-            break;
-
-            case "k":
-            vim_model.cursorUp();
-            break;
-            
-            case "a":
-            vim_model.incrementPositionExtended();
-            this.command_mode = false;
-            break;
-
-            case "$":
-            vim_model.endOfLine();
-            break;
-
-            case "x":
-            vim_model.deleteCharAtCurrentPosition();
-            break;
-
-            case "w":
-            vim_model.jumpToNextWord();
-            break;
-
-            case "b":
-            vim_model.jumpBackWord();
-            break;
-
-            case "0":
-            vim_model.startOfLine();
-            break;
+        this.addCommandString(typed_key);
+        method_name = this.generateCommandMethod();
+        if (this.hasOwnProperty(method_name)) {
+            this[method_name]();
+            this.clearCommandString()
         }
         vim_view.refreshDisplay();
+    }
+
+    this.addCommandString = function(typed_key) {
+        this.command_string += typed_key;
+    }
+
+    this.clearCommandString = function() {
+        this.command_string = "";
+    }
+
+    this.generateCommandMethod = function() {
+        return "command_" + this.command_string;
     }
 }
 
 $(document).ready(function(event) {
-    vim_controller = new WebvimController();
-    vim_model = new WebvimModel();
-    vim_view = new WebvimView();
+        vim_controller = new WebvimController();
+        vim_model = new WebvimModel();
+        vim_view = new WebvimView();
 
 
-    vim_model.initialize("this is test text");
-    vim_model.addLine("this is more test text");
-    vim_view.refreshDisplay();
+        vim_model.initialize("this is test text");
+        vim_model.addLine("this is more text text");
+        vim_view.refreshDisplay();
 
-    $("#webvim_title").text("webvim: A JavaScript Vim Emulator");
+        $("#webvim_title").text("webvim: A JavaScript Vim Emulator");
 
-    $(window).keypress(function(event) {
-        vim_controller.keyAction(event);
-    });
-
-});
+        $(window).keypress(function(event) {
+            vim_controller.keyAction(event);
+            });
+        });
